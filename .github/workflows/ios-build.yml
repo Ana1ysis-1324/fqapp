@@ -1,0 +1,179 @@
+name: iOS Build
+run-name: iOS Build ${{ inputs.build_id || github.ref_name }}
+
+# 兼容 MobAI-App/ios-builder 的两种触发方式：
+#   1) builder ios build  -> 推隐藏 ref 并 workflow_dispatch（带 snapshot_ref）
+#   2) 手动 git tag ios-build/<id> && git push origin ios-build/<id>
+#   3) 在 Actions 页面手动 Run workflow
+on:
+  push:
+    tags:
+      - 'ios-build/*'
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Unique build identifier'
+        required: true
+        type: string
+      snapshot_ref:
+        description: 'Ref holding the working-tree snapshot to build (empty builds this branch)'
+        required: false
+        type: string
+        default: ''
+      ios_path:
+        description: 'Path to iOS project'
+        required: false
+        type: string
+        default: 'ios'
+      scheme:
+        description: 'Xcode scheme (auto-detected if empty)'
+        required: false
+        type: string
+        default: ''
+      use_signing:
+        description: 'Enable code signing (needs IOS_CERTIFICATE / IOS_CERTIFICATE_PASSWORD / IOS_PROVISIONING_PROFILE secrets)'
+        required: false
+        type: boolean
+        default: false
+      configuration:
+        description: 'Build configuration'
+        required: false
+        type: string
+        default: 'Release'
+      flutter_version:
+        description: 'Flutter version (empty = latest stable)'
+        required: false
+        type: string
+        default: ''
+      jdk_version:
+        description: 'JDK version (unused for Flutter, kept for builder compat)'
+        required: false
+        type: string
+        default: '17'
+      profile:
+        description: 'Selected build profile JSON (builder compat)'
+        required: false
+        type: string
+        default: ''
+      build_number:
+        description: 'Override build number'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write   # deletes the trigger tag
+    env:
+      IOS_PATH: ${{ inputs.ios_path || 'ios' }}
+      CONFIGURATION: ${{ inputs.configuration || 'Release' }}
+      USE_SIGNING: ${{ inputs.use_signing == true && 'true' || 'false' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout working-tree snapshot (ios-builder)
+        if: ${{ inputs.snapshot_ref != '' }}
+        run: |
+          set -e
+          git fetch --depth=1 origin "+${{ inputs.snapshot_ref }}:refs/heads/snapshot"
+          git checkout --force snapshot
+          echo "Building $(git rev-parse --short HEAD)"
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest
+
+      - name: Install Rust toolchain (iOS targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Inject iOS media_kit lib (if missing)
+        run: |
+          if ! grep -q "media_kit_libs_ios_video" pubspec.yaml; then
+            sed -i.bak '/media_kit_libs_windows_video/a\  media_kit_libs_ios_video: ^1.0.4' pubspec.yaml
+            echo "==> added media_kit_libs_ios_video to pubspec.yaml"
+          fi
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Ensure ios/ exists
+        run: |
+          if [ ! -d "$IOS_PATH" ]; then
+            echo "==> flutter create --platforms=ios ."
+            flutter create --platforms=ios --project-name fqapp .
+          fi
+
+      - name: Install flutter_rust_bridge_codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+
+      - name: Generate Flutter-Rust-Bridge bindings
+        run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
+
+      - name: Build Rust core for iOS
+        run: ./scripts/build_rust_backend_ios.sh --skip-codegen
+
+      - name: Inject iOS native files & link Rust
+        run: ./scripts/patch_ios.sh
+
+      - name: Import signing materials
+        if: ${{ env.USE_SIGNING == 'true' }}
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -e
+          echo "$IOS_CERTIFICATE" | base64 -d > /tmp/cert.p12
+          security create-keychain -p tmp build.keychain
+          security unlock-keychain -p tmp build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s build.keychain login.keychain
+          echo "$IOS_PROVISIONING_PROFILE" | base64 -d > /tmp/profile.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Build IPA (unsigned)
+        if: ${{ env.USE_SIGNING != 'true' }}
+        run: |
+          set -e
+          flutter build ios --${{ env.CONFIGURATION == 'Debug' && 'debug' || 'release' }} --no-codesign
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r ../../../fqapp.ipa Payload/
+          cd ../../..
+          echo "IPA=$(pwd)/build/fqapp.ipa" >> "$GITHUB_ENV"
+
+      - name: Build IPA (signed)
+        if: ${{ env.USE_SIGNING == 'true' }}
+        run: |
+          set -e
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          IPA=$(find build/ios/ipa -name '*.ipa' | head -n1)
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fqapp-ios-${{ inputs.build_id || github.ref_name }}
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+
+      - name: Delete trigger tag
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/ios-build/') }}
+        run: git push origin ":refs/tags/${{ github.ref_name }}"
