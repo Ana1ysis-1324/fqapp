@@ -10,3 +10,6 @@ rust_root: rust/
 dart_output: lib/src/rust
 web: false
 rust_format: false
+# iOS integration: emit the C header that the Runner bridging header includes.
+# Safe for Android/Windows builds (FRB just writes this file; they ignore it).
+c_output: ios/Runner/frb_generated.h
