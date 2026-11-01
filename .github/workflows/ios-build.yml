@@ -155,12 +155,14 @@ jobs:
         run: |
           set -e
           flutter build ios --${{ env.CONFIGURATION == 'Debug' && 'debug' || 'release' }} --no-codesign
-          cd build/ios/iphoneos
+          cd "$GITHUB_WORKSPACE/build/ios/iphoneos"
+          rm -rf Payload
           mkdir -p Payload
           cp -r Runner.app Payload/
-          zip -r ../../../fqapp.ipa Payload/
-          cd ../../..
-          echo "IPA=$(pwd)/build/fqapp.ipa" >> "$GITHUB_ENV"
+          rm -f "$GITHUB_WORKSPACE/build/fqapp.ipa"
+          zip -qry "$GITHUB_WORKSPACE/build/fqapp.ipa" Payload
+          echo "IPA=$GITHUB_WORKSPACE/build/fqapp.ipa" >> "$GITHUB_ENV"
+          ls -la "$GITHUB_WORKSPACE/build/fqapp.ipa"
 
       - name: Build IPA (signed)
         if: ${{ env.USE_SIGNING == 'true' }}
