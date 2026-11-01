@@ -32,6 +32,38 @@ else
   puts 'created Runner-Bridging-Header.h'
 end
 
+# 2b) Info.plist: relax ATS (the app talks to plain-http fanqie APIs like the
+#     Android build) and allow background audio (听书 / TTS playback).
+info = File.join(RUNNER, 'Info.plist')
+if File.exist?(info)
+  plist = File.read(info)
+  unless plist.include?('NSAppTransportSecurity')
+    ats = <<~XML
+      <key>NSAppTransportSecurity</key>
+      <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+      </dict>
+    XML
+    plist.sub!('</plist>', ats + "</plist>")
+    File.write(info, plist)
+    puts 'injected NSAppTransportSecurity into Info.plist'
+  end
+  unless plist.include?('UIBackgroundModes')
+    bg = <<~XML
+      <key>UIBackgroundModes</key>
+      <array>
+        <string>audio</string>
+      </array>
+    XML
+    plist.sub!('</plist>', bg + "</plist>")
+    File.write(info, plist)
+    puts 'injected UIBackgroundModes(audio) into Info.plist'
+  end
+end
+
 # 3) Inject the plugin registration into the GENERATED AppDelegate.
 #    Using the standard FlutterPlugin registrar works in both non-scene and
 #    SceneDelegate-based templates (same mechanism GeneratedPluginRegistrant uses).
