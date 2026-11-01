@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dict>
+  <key>method</key>
+  <!-- app-store / ad-hoc / development / enterprise 按你的证书选择 -->
+  <string>app-store</string>
+  <key>signingStyle</key>
+  <string>manual</string>
+  <key>stripSwiftSymbols</key>
+  <true/>
+  <key>uploadBitcode</key>
+  <false/>
+  <key>compileBitcode</key>
+  <false/>
+</dict>
