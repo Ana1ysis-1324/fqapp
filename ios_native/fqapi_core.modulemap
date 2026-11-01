@@ -1,0 +1,4 @@
+module fqapi_core {
+  header "frb_generated.h"
+  export *
+}
