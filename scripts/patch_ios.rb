@@ -117,7 +117,7 @@ unless embed.files_references.include?(fw_ref)
   embed.add_file_reference(fw_ref)
 end
 embed.files.each do |f|
-  next unless f.ref == fw_ref
+  next unless f.file_ref == fw_ref
   attrs = (f.settings && f.settings['ATTRIBUTES']) || []
   f.settings = { 'ATTRIBUTES' => (attrs | ['CodeSignOnCopy']) }
 end
