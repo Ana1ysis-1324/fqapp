@@ -104,7 +104,7 @@ jobs:
       - name: Inject iOS media_kit lib (if missing)
         run: |
           if ! grep -q "media_kit_libs_ios_video" pubspec.yaml; then
-            sed -i.bak '/media_kit_libs_windows_video/a\  media_kit_libs_ios_video: ^1.0.4' pubspec.yaml
+            perl -i -pe 's{^(\s*media_kit_libs_windows_video:.*)}{$1\n  media_kit_libs_ios_video: ^1.0.4}' pubspec.yaml
             echo "==> added media_kit_libs_ios_video to pubspec.yaml"
           fi
 
