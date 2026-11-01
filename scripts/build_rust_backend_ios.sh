@@ -78,15 +78,16 @@ cp -f "$DEV_LIB" "$RUNNER_DIR/libfqapi_core.a"
 echo "==> staged $RUNNER_DIR/libfqapi_core.a"
 
 # 5) Copy the FRB-generated C header next to the Runner (codegen wrote it here).
-for cand in "$RUNNER_DIR/frb_generated.h" "$APP_DIR/ios/frb_generated.h"; do
-  if [ -f "$cand" ]; then
+for cand in "$APP_DIR/ios/Runner/frb_generated.h" "$APP_DIR/ios/frb_generated.h" "$APP_DIR/rust/frb_generated.h"; do
+  if [ -f "$cand" ] && [ "$cand" != "$RUNNER_DIR/frb_generated.h" ]; then
     cp -f "$cand" "$RUNNER_DIR/frb_generated.h"
     echo "==> staged $RUNNER_DIR/frb_generated.h (from $cand)"
     break
   fi
 done
 if [ ! -f "$RUNNER_DIR/frb_generated.h" ]; then
-  echo "警告：未找到 frb_generated.h，请确认 flutter_rust_bridge_codegen 已运行。" >&2
+  echo "错误：未找到 frb_generated.h，请确认 flutter_rust_bridge_codegen 已运行且 yaml 配置了 c_output。" >&2
+  exit 1
 fi
 
 echo "iOS Rust 核心编译完成。"
