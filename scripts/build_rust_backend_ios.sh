@@ -73,9 +73,43 @@ fi
 
 mkdir -p "$RUNNER_DIR"
 
-# 4) Stage the static lib for Xcode (static linking, matches Flutter iOS).
+# 4) Stage the static lib for Xcode (kept as fallback artifact only).
 cp -f "$DEV_LIB" "$RUNNER_DIR/libfqapi_core.a"
 echo "==> staged $RUNNER_DIR/libfqapi_core.a"
+
+# 4b) Bundle the cdylib as a dynamic framework. This is what actually ships:
+#     the FRB Dart loader on iOS dlopens '<stem>.framework/<stem>' first
+#     (fqapi_core.framework/fqapi_core), resolving via Runner's
+#     LC_RPATH=@executable_path/Frameworks once embedded.
+DEV_DYLIB="$RUST_DIR/target/aarch64-apple-ios/$PROFILE/libfqapi_core.dylib"
+FW_DIR="$RUNNER_DIR/fqapi_core.framework"
+if [ ! -s "$DEV_DYLIB" ]; then
+  echo "错误：未找到 cdylib $DEV_DYLIB，Dart FFI 将无法加载 Rust 核心。" >&2
+  exit 1
+fi
+rm -rf "$FW_DIR"
+mkdir -p "$FW_DIR"
+cp -f "$DEV_DYLIB" "$FW_DIR/fqapi_core"
+install_name_tool -id "@rpath/fqapi_core.framework/fqapi_core" "$FW_DIR/fqapi_core"
+codesign --force --sign - "$FW_DIR/fqapi_core" 2>/dev/null || true
+cat > "$FW_DIR/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>fqapi_core</string>
+  <key>CFBundleIdentifier</key><string>com.fqapp.fqapiCore</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>fqapi_core</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>MinimumOSVersion</key><string>12.0</string>
+</dict>
+</plist>
+PLIST
+echo "==> bundled $FW_DIR"
 
 # 5) Copy the FRB-generated C header next to the Runner (codegen wrote it here).
 for cand in "$APP_DIR/ios/Runner/frb_generated.h" "$APP_DIR/ios/frb_generated.h" "$APP_DIR/rust/frb_generated.h"; do
