@@ -115,13 +115,21 @@ unless fbp.files_references.include?(lib_ref)
   puts 'added libfqapi_core.a to Runner link phase'
 end
 
-# 6) Build settings: header + library search paths.
+# 6) Build settings: header + library search paths. Also:
+#  - force SWIFT_OBJC_BRIDGING_HEADER to the header we control (new templates
+#    may not set it), so `#include "frb_generated.h"` is actually processed;
+#  - `-force_load` the Rust static archive: nothing in native code references
+#    its symbols, so plain archive linking lets ld skip it entirely and Dart
+#    FFI would fail to resolve `frbgen_*` at runtime.
 runner_target.build_configurations.each do |config|
   s = config.build_settings
   s['HEADER_SEARCH_PATHS']  = Array(s['HEADER_SEARCH_PATHS']) + ['$(SRCROOT)/Runner']
   s['HEADER_SEARCH_PATHS'].uniq!
   s['LIBRARY_SEARCH_PATHS'] = Array(s['LIBRARY_SEARCH_PATHS']) + ['$(SRCROOT)/Runner']
   s['LIBRARY_SEARCH_PATHS'].uniq!
+  s['SWIFT_OBJC_BRIDGING_HEADER'] = 'Runner/Runner-Bridging-Header.h'
+  s['OTHER_LDFLAGS'] = Array(s['OTHER_LDFLAGS']) +
+                       ['-force_load', '$(SRCROOT)/Runner/libfqapi_core.a']
 end
 
 proj.save
