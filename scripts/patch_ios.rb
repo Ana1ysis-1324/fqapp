@@ -97,39 +97,39 @@ proj = Xcodeproj::Project.open(PROJ_PATH)
 runner_target = proj.targets.find { |t| t.name == 'Runner' }
 abort '未找到 Runner target' unless runner_target
 
-# 5) Add libfqapi_core.a to the Runner target (reference + link phase).
-lib_path = File.join(RUNNER, 'libfqapi_core.a')
-unless File.exist?(lib_path)
-  puts "警告：未找到 #{lib_path}，静态库可能未编译（链接阶段会失败）。"
-end
+# 5) Embed the Rust dynamic framework. The FRB Dart loader on iOS dlopens
+#    'fqapi_core.framework/fqapi_core' FIRST (see the runtime error captured
+#    on device) — a bare static lib linked into Runner is never seen by it.
+#    So ship the cdylib as fqapi_core.framework inside Runner.app/Frameworks.
+fw_path = File.join(RUNNER, 'fqapi_core.framework')
+abort "缺少 #{fw_path}，请先运行 scripts/build_rust_backend_ios.sh 打包动态框架。" unless File.directory?(fw_path)
 
 runner_group = proj.main_group.children.find { |g| g.respond_to?(:path) && g.path == 'Runner' }
 runner_group ||= proj.main_group
 
-existing = runner_group.files.find { |f| f.respond_to?(:path) && f.path == 'libfqapi_core.a' }
-lib_ref = existing || runner_group.new_file('libfqapi_core.a')
+fw_ref = runner_group.files.find { |f| f.respond_to?(:path) && f.path == 'fqapi_core.framework' } ||
+         runner_group.new_file('fqapi_core.framework')
 
-fbp = runner_target.frameworks_build_phase
-unless fbp.files_references.include?(lib_ref)
-  fbp.add_file_reference(lib_ref)
-  puts 'added libfqapi_core.a to Runner link phase'
+embed = runner_target.copy_files_build_phases.find { |p| p.name == 'Embed Frameworks' } ||
+        runner_target.new_copy_files_build_phase('Embed Frameworks')
+embed.dst_subfolder_spec = '10'   # 10 = Frameworks dir inside the .app
+unless embed.files_references.include?(fw_ref)
+  embed.add_file_reference(fw_ref)
 end
+embed.files.each do |f|
+  next unless f.ref == fw_ref
+  attrs = (f.settings && f.settings['ATTRIBUTES']) || []
+  f.settings = { 'ATTRIBUTES' => (attrs | ['CodeSignOnCopy']) }
+end
+puts 'embedded fqapi_core.framework (Embed Frameworks + CodeSignOnCopy)'
 
-# 6) Build settings: header + library search paths. Also:
-#  - force SWIFT_OBJC_BRIDGING_HEADER to the header we control (new templates
-#    may not set it), so `#include "frb_generated.h"` is actually processed;
-#  - `-force_load` the Rust static archive: nothing in native code references
-#    its symbols, so plain archive linking lets ld skip it entirely and Dart
-#    FFI would fail to resolve `frbgen_*` at runtime.
+# 6) Build settings: header search path + explicit bridging header so
+#    `#include "frb_generated.h"` is processed by Swift.
 runner_target.build_configurations.each do |config|
   s = config.build_settings
   s['HEADER_SEARCH_PATHS']  = Array(s['HEADER_SEARCH_PATHS']) + ['$(SRCROOT)/Runner']
   s['HEADER_SEARCH_PATHS'].uniq!
-  s['LIBRARY_SEARCH_PATHS'] = Array(s['LIBRARY_SEARCH_PATHS']) + ['$(SRCROOT)/Runner']
-  s['LIBRARY_SEARCH_PATHS'].uniq!
   s['SWIFT_OBJC_BRIDGING_HEADER'] = 'Runner/Runner-Bridging-Header.h'
-  s['OTHER_LDFLAGS'] = Array(s['OTHER_LDFLAGS']) +
-                       ['-force_load', '$(SRCROOT)/Runner/libfqapi_core.a']
 end
 
 proj.save
