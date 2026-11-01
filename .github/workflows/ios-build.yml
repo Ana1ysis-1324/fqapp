@@ -124,11 +124,14 @@ jobs:
       - name: Generate Flutter-Rust-Bridge bindings
         run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 
+      - name: Make scripts executable (Contents API strips the +x bit)
+        run: chmod +x scripts/*.sh || true
+
       - name: Build Rust core for iOS
-        run: ./scripts/build_rust_backend_ios.sh --skip-codegen
+        run: bash ./scripts/build_rust_backend_ios.sh --skip-codegen
 
       - name: Inject iOS native files & link Rust
-        run: ./scripts/patch_ios.sh
+        run: bash ./scripts/patch_ios.sh
 
       - name: Import signing materials
         if: ${{ env.USE_SIGNING == 'true' }}
