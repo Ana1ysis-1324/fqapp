@@ -34,31 +34,27 @@ end
 
 # 2b) Info.plist: relax ATS (the app talks to plain-http fanqie APIs like the
 #     Android build) and allow background audio (听书 / TTS playback).
+#     IMPORTANT: insert the new <key>/<dict> pair INSIDE the root <dict>, i.e.
+#     right before the closing </dict></plist> — NOT between </dict> and </plist>.
 info = File.join(RUNNER, 'Info.plist')
 if File.exist?(info)
   plist = File.read(info)
+  root_re = /<\/dict>\s*<\/plist>/m   # the root dict close + plist close (unique)
+
   unless plist.include?('NSAppTransportSecurity')
-    ats = <<~XML
-      <key>NSAppTransportSecurity</key>
-      <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-        <key>NSAllowsLocalNetworking</key>
-        <true/>
-      </dict>
-    XML
-    plist.sub!('</plist>', ats + "</plist>")
+    ats = "<key>NSAppTransportSecurity</key>\n" \
+          "<dict>\n" \
+          "<key>NSAllowsArbitraryLoads</key>\n<true/>\n" \
+          "<key>NSAllowsLocalNetworking</key>\n<true/>\n" \
+          "</dict>\n"
+    plist.sub!(root_re) { |m| ats + m }
     File.write(info, plist)
     puts 'injected NSAppTransportSecurity into Info.plist'
   end
+
   unless plist.include?('UIBackgroundModes')
-    bg = <<~XML
-      <key>UIBackgroundModes</key>
-      <array>
-        <string>audio</string>
-      </array>
-    XML
-    plist.sub!('</plist>', bg + "</plist>")
+    bg = "<key>UIBackgroundModes</key>\n<array>\n<string>audio</string>\n</array>\n"
+    plist.sub!(root_re) { |m| bg + m }
     File.write(info, plist)
     puts 'injected UIBackgroundModes(audio) into Info.plist'
   end
