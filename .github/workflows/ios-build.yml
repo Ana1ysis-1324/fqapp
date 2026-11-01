@@ -155,6 +155,17 @@ jobs:
         run: |
           set -e
           flutter build ios --${{ env.CONFIGURATION == 'Debug' && 'debug' || 'release' }} --no-codesign
+          # Belt-and-braces: make sure the Rust dynamic framework is inside
+          # the .app even if the Embed Frameworks copy phase misbehaves.
+          if [ -d "$GITHUB_WORKSPACE/ios/Runner/fqapi_core.framework" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/build/ios/iphoneos/Runner.app/Frameworks"
+            rm -rf "$GITHUB_WORKSPACE/build/ios/iphoneos/Runner.app/Frameworks/fqapi_core.framework"
+            cp -R "$GITHUB_WORKSPACE/ios/Runner/fqapi_core.framework" \
+                  "$GITHUB_WORKSPACE/build/ios/iphoneos/Runner.app/Frameworks/"
+            echo "==> fqapi_core.framework copied into Runner.app/Frameworks"
+          else
+            echo "==> WARNING: ios/Runner/fqapi_core.framework missing" >&2
+          fi
           cd "$GITHUB_WORKSPACE/build/ios/iphoneos"
           rm -rf Payload
           mkdir -p Payload
