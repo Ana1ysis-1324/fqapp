@@ -139,19 +139,12 @@ class _TabSwipeAreaState extends State<TabSwipeArea>
     if (widget.index == oldWidget.index) return;
     // 手势发起的切换由 [_commit] 自己接管动画，这里不插手。
     if (_busy || _dragging) return;
-    // 点标签切过来的：也让新内容从对应一侧迎进来，与手势切换同一种观感。
-    // 位移同步设好（免得新内容先归位再跳出去），动画放到这一帧之后启动。
-    final direction = widget.index > oldWidget.index ? 1 : -1;
-    // 这里不能量宽：[didUpdateWidget] 跑在 build 阶段，这一帧的 layout 还没
-    // 发生，`context.size` 会直接抛异常。沿用 [_width]（上一帧由 build 里的
-    // LayoutBuilder 记下的内容宽度）。
-    // 先停旧补间，否则它在下一帧还会继续写 _offset，把刚设好的入场位移抹掉。
+    // 点标签切过来的：内容原地换，不做整页横移。此前这里会让新内容从一侧
+    // 「迎进来」，但位移包住的是整棵子树——搜索行、吸顶分类条、feed 一起
+    // 横滑，观感成了「整个背景都切换过去」。官方点标签是原地换内容，这里
+    // 对齐：停掉旧补间、直接归位。横滑手势的切换动画仍由 [_commit] 保留。
     _anim.stop();
-    _offset.value = direction * _width * TabSwipeArea.enterFraction;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      unawaited(_to(0, TabSwipeArea.enterMs, Curves.easeOutCubic));
-    });
+    _offset.value = 0;
   }
 
   @override
